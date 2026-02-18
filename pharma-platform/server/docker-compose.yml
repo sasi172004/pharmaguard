@@ -1,0 +1,87 @@
+# ============================================================
+# PHARMAGUARD — Docker Compose
+# Full-stack deployment: API + PostgreSQL + Frontend
+# ============================================================
+
+version: '3.9'
+
+services:
+  # ─── PostgreSQL Database ───────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: pharmaguard-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pharmaguard
+      POSTGRES_USER: pharmaguard_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-PhGuard_Secure_2026!}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pharmaguard_admin -d pharmaguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmaguard-net
+
+  # ─── PharmaGuard API Server ────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pharmaguard-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: pharmaguard
+      DB_USER: pharmaguard_admin
+      DB_PASSWORD: ${DB_PASSWORD:-PhGuard_Secure_2026!}
+      JWT_SECRET: ${JWT_SECRET:-your-production-jwt-secret-minimum-32-chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-production-refresh-secret-min-32}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_PATH: /app/uploads
+    ports:
+      - "3001:3001"
+    volumes:
+      - uploads:/app/uploads
+      - logs:/app/logs
+    networks:
+      - pharmaguard-net
+
+  # ─── Frontend (Optional — for production build) ────────
+  # frontend:
+  #   build:
+  #     context: ../
+  #     dockerfile: Dockerfile.frontend
+  #   container_name: pharmaguard-frontend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     - api
+  #   networks:
+  #     - pharmaguard-net
+
+volumes:
+  pgdata:
+    driver: local
+  uploads:
+    driver: local
+  logs:
+    driver: local
+
+networks:
+  pharmaguard-net:
+    driver: bridge

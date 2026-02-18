@@ -1,0 +1,605 @@
+openapi: 3.1.0
+info:
+  title: PharmaGuard API
+  version: 1.0.0
+  description: |
+    Pharmaceutical Data Integrity & Compliance Platform.
+    FDA 21 CFR Part 11 compliant electronic records, audit trails, 
+    e-signatures, batch tracking, and document control APIs.
+  contact:
+    name: PharmaGuard Engineering
+    email: api@pharmaguard.io
+  license:
+    name: Proprietary
+    
+servers:
+  - url: http://localhost:3001/api/v1
+    description: Local Development
+  - url: https://api.pharmaguard.io/api/v1
+    description: Production
+
+tags:
+  - name: Authentication
+    description: User login, logout, token management
+  - name: Uploads
+    description: Instrument data file upload and integrity verification
+  - name: Audit Trail
+    description: Immutable, tamper-evident activity logging (21 CFR Part 11)
+  - name: Documents
+    description: SOP, protocol, and quality document management
+  - name: Batches
+    description: Manufacturing batch record tracking
+  - name: Users
+    description: User management and RBAC
+  - name: Instruments
+    description: Lab instrument registration and management
+  - name: Reports
+    description: Compliance report generation and export
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from /auth/login
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for watch agents and external integrations
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error: { type: string }
+        code: { type: string }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: "priya.sharma@pharmaguard.io" }
+        password: { type: string, format: password, example: "PharmaGuard@2026" }
+
+    LoginResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            user:
+              type: object
+              properties:
+                id: { type: string, format: uuid }
+                email: { type: string }
+                firstName: { type: string }
+                lastName: { type: string }
+                role: { type: string, enum: [admin, lab_director, qa_manager, qc_analyst, compliance_officer, lab_technician, viewer] }
+                department: { type: string }
+                orgId: { type: string, format: uuid }
+            tokens:
+              type: object
+              properties:
+                accessToken: { type: string }
+                refreshToken: { type: string }
+
+    FileUpload:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        originalFilename: { type: string, example: "batch_001_hplc_run.cdf" }
+        fileSize: { type: integer, example: 2048576 }
+        sha256Hash: { type: string, example: "a1b2c3d4e5f6..." }
+        md5Hash: { type: string }
+        status: 
+          type: string
+          enum: [pending_verification, verified, flagged, quarantined, archived]
+        integrityVerified: { type: boolean }
+        instrumentId: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        uploadedBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        userEmail: { type: string }
+        userName: { type: string }
+        userRole: { type: string }
+        action: { type: string }
+        category: 
+          type: string
+          enum: [data_capture, integrity, document_control, access_control, batch_tracking, signature, instrument, reporting, system]
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        resourceType: { type: string }
+        resourceId: { type: string, format: uuid }
+        description: { type: string }
+        entryHash: { type: string, description: "SHA-256 hash of entry for tamper evidence" }
+        previousHash: { type: string, description: "Hash of previous entry in chain" }
+        sequenceNumber: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    Document:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        documentNumber: { type: string, example: "SOP-QC-001" }
+        title: { type: string }
+        category:
+          type: string
+          enum: [SOP, protocol, template, deviation, capa, report, policy]
+        currentVersion: { type: string, example: "3.2" }
+        status:
+          type: string
+          enum: [draft, under_review, pending_signature, approved, effective, superseded, archived]
+        authorId: { type: string, format: uuid }
+        versions: { type: array, items: { $ref: '#/components/schemas/DocumentVersion' } }
+
+    DocumentVersion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        versionNumber: { type: string }
+        changeSummary: { type: string }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+
+    Batch:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        batchNumber: { type: string, example: "BATCH-2026-001" }
+        productName: { type: string }
+        stage: { type: string }
+        status:
+          type: string
+          enum: [active, pending_release, released, rejected, on_hold]
+        complianceScore: { type: number, example: 87.5 }
+        assignedTo: { type: string, format: uuid }
+        files: { type: array, items: { $ref: '#/components/schemas/FileUpload' } }
+        signatures: { type: array, items: { $ref: '#/components/schemas/ElectronicSignature' } }
+
+    ElectronicSignature:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        signerId: { type: string, format: uuid }
+        recordType: { type: string }
+        recordId: { type: string, format: uuid }
+        signatureType:
+          type: string
+          enum: [approval, review, release, rejection, acknowledgment]
+        intent: { type: string, example: "Reviewed and approved for release" }
+        authMethod: { type: string, enum: [password, mfa, biometric] }
+        signatureHash: { type: string }
+        signedAt: { type: string, format: date-time }
+        isValid: { type: boolean }
+
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+
+paths:
+  # ─── Authentication ────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: User login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401': { description: Invalid credentials }
+        '423': { description: Account locked }
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { description: New tokens issued }
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user profile
+      responses:
+        '200': { description: User profile }
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout (audit-logged)
+      responses:
+        '200': { description: Logged out }
+
+  /auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 12 }
+      responses:
+        '200': { description: Password changed }
+
+  # ─── File Uploads ──────────────────────────────────────
+  /uploads:
+    get:
+      tags: [Uploads]
+      summary: List uploaded files
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: instrumentId, in: query, schema: { type: string, format: uuid } }
+        - { name: batchId, in: query, schema: { type: string, format: uuid } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Paginated list of uploads
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/FileUpload' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+
+    post:
+      tags: [Uploads]
+      summary: Upload instrument data file
+      description: |
+        Uploads a file with automatic SHA-256 and MD5 hashing for data integrity.
+        Duplicate files (same hash) are rejected.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                instrumentId: { type: string, format: uuid }
+                batchId: { type: string, format: uuid }
+                notes: { type: string }
+      responses:
+        '201': { description: File uploaded and verified }
+        '409': { description: Duplicate file detected }
+
+  /uploads/{id}:
+    get:
+      tags: [Uploads]
+      summary: Get upload details
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Upload details }
+
+  /uploads/{id}/flag:
+    patch:
+      tags: [Uploads]
+      summary: Flag file for review
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        '200': { description: File flagged }
+
+  /uploads/{id}/verify:
+    patch:
+      tags: [Uploads]
+      summary: Re-verify file integrity
+      description: Re-computes SHA-256 hash and compares against stored hash
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isValid: { type: boolean }
+                  expectedHash: { type: string }
+                  actualHash: { type: string }
+
+  # ─── Audit Trail ───────────────────────────────────────
+  /audit:
+    get:
+      tags: [Audit Trail]
+      summary: Query audit trail
+      description: Retrieve immutable audit entries with comprehensive filtering
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 100 } }
+        - { name: userId, in: query, schema: { type: string, format: uuid } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: severity, in: query, schema: { type: string } }
+        - { name: resourceType, in: query, schema: { type: string } }
+        - { name: startDate, in: query, schema: { type: string, format: date-time } }
+        - { name: endDate, in: query, schema: { type: string, format: date-time } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Paginated audit trail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } }
+                  summary: 
+                    type: object
+                    properties:
+                      info: { type: integer }
+                      warning: { type: integer }
+                      critical: { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+
+  /audit/verify-chain:
+    get:
+      tags: [Audit Trail]
+      summary: Verify audit trail integrity
+      description: Validates the SHA-256 hash chain to detect any tampering
+      responses:
+        '200':
+          description: Chain verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chainValid: { type: boolean }
+                  totalEntries: { type: integer }
+                  verifiedAt: { type: string, format: date-time }
+
+  /audit/resource/{type}/{resourceId}:
+    get:
+      tags: [Audit Trail]
+      summary: Audit history for specific resource
+      parameters:
+        - { name: type, in: path, required: true, schema: { type: string } }
+        - { name: resourceId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Resource audit trail }
+
+  /audit/stats/summary:
+    get:
+      tags: [Audit Trail]
+      summary: Audit trail statistics
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 } }
+      responses:
+        '200': { description: Audit statistics }
+
+  # ─── Documents ─────────────────────────────────────────
+  /documents:
+    get:
+      tags: [Documents]
+      summary: List quality documents
+      parameters:
+        - { name: category, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Paginated document list }
+
+    post:
+      tags: [Documents]
+      summary: Create new document
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentNumber, title, category]
+              properties:
+                documentNumber: { type: string, example: "SOP-QC-003" }
+                title: { type: string }
+                category: { type: string }
+                department: { type: string }
+                tags: { type: array, items: { type: string } }
+      responses:
+        '201': { description: Document created }
+
+  /documents/{id}:
+    get:
+      tags: [Documents]
+      summary: Get document with versions and signatures
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Full document with version history }
+
+  /documents/{id}/approve:
+    patch:
+      tags: [Documents]
+      summary: Approve document with e-signature
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [intent]
+              properties:
+                intent: { type: string, example: "Reviewed and approved for use" }
+                effectiveDate: { type: string, format: date }
+      responses:
+        '200': { description: Document approved with e-signature }
+
+  # ─── Batches ───────────────────────────────────────────
+  /batches:
+    get:
+      tags: [Batches]
+      summary: List batch records
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Paginated batch list }
+
+    post:
+      tags: [Batches]
+      summary: Create batch record
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batchNumber, productName, startDate]
+              properties:
+                batchNumber: { type: string, example: "BATCH-2026-005" }
+                productName: { type: string }
+                productCode: { type: string }
+                stage: { type: string }
+                startDate: { type: string, format: date }
+      responses:
+        '201': { description: Batch created }
+
+  /batches/{id}:
+    get:
+      tags: [Batches]
+      summary: Get batch with linked files, signatures, audit history
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Full batch record }
+
+  /batches/{id}/release:
+    patch:
+      tags: [Batches]
+      summary: Release or reject batch with e-signature
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, intent]
+              properties:
+                decision: { type: string, enum: [release, reject] }
+                intent: { type: string, example: "All QC tests passed. Batch approved for release." }
+      responses:
+        '200': { description: Batch released/rejected with e-signature }
+
+  # ─── Users ─────────────────────────────────────────────
+  /users:
+    get:
+      tags: [Users]
+      summary: List organization users
+      responses:
+        '200': { description: User list }
+    post:
+      tags: [Users]
+      summary: Create user
+      responses:
+        '201': { description: User created }
+
+  /users/{id}:
+    patch:
+      tags: [Users]
+      summary: Update user
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: User updated }
+
+  # ─── Instruments ───────────────────────────────────────
+  /instruments:
+    get:
+      tags: [Instruments]
+      summary: List connected instruments
+      responses:
+        '200': { description: Instrument list }
+    post:
+      tags: [Instruments]
+      summary: Register instrument
+      responses:
+        '201': { description: Instrument registered }
+
+  # ─── Reports ───────────────────────────────────────────
+  /reports:
+    get:
+      tags: [Reports]
+      summary: List generated reports
+      responses:
+        '200': { description: Report list }
+
+  /reports/generate:
+    post:
+      tags: [Reports]
+      summary: Generate compliance report
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reportType, title]
+              properties:
+                reportType:
+                  type: string
+                  enum: [monthly_summary, audit_trail_export, data_integrity_assessment, part11_readiness, instrument_validation, batch_release]
+                title: { type: string }
+                startDate: { type: string, format: date }
+                endDate: { type: string, format: date }
+      responses:
+        '201': { description: Report generated }
+
+  /reports/dashboard/summary:
+    get:
+      tags: [Reports]
+      summary: Dashboard summary metrics
+      responses:
+        '200': { description: Dashboard data }
