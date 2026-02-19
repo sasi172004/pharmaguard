@@ -18,6 +18,10 @@ import reportsRoutes from './routes/reports.routes.js';
 
 const app = express();
 
+// Trust proxy (Render/Vercel/Heroku)
+// This is required for rate limiting to work correctly behind a load balancer
+app.set('trust proxy', 1);
+
 // ============================================================
 // SECURITY MIDDLEWARE
 // ============================================================
@@ -59,7 +63,7 @@ app.use(limiter);
 // Stricter rate limit for auth endpoints
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10,
+    max: 100, // Increased from 10 to 100 to prevent accidental lockouts behind proxies or multiple internal calls
     message: {
         success: false,
         error: 'Too many login attempts. Account may be locked.',
