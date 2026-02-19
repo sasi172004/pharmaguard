@@ -3,7 +3,7 @@
  * Handles all communication between frontend and backend API
  */
 
-const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api/v1';
+const API_BASE = (import.meta.env.VITE_API_URL || 'https://pharmaguard-api.onrender.com') + '/api/v1';
 
 // ─── Token Management ──────────────────────────────────
 function getAccessToken() {
